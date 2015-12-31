@@ -1,0 +1,114 @@
+#!/bin/sh
+
+THETA="http://192.168.1.1:80"
+RETCODE=""
+set -e
+
+get_info() {
+  wget -q $THETA/osc/info -O - | jq .
+}
+
+get_state() {
+  wget -q --post-data="" $THETA/osc/state -O - | jq .
+}
+
+get_image() { # imagename
+  wget $THETA/100RICOH/$1
+}
+
+get_progress() { # commandid [outfile]
+  outfile="-"
+  [ "$2" ] && outfile=$2
+  wget -q --post-data="{\"id\":\"$1\"}" $THETA/osc/commands/status -O $outfile
+}
+
+exec_command() { # command parameters [outfile]
+  JSONDATA="{\"name\":\"$1\",\"parameters\":$2}"
+  outfile="-"
+  [ "$3" ] && outfile=$3
+  tmplog=`mktemp`
+  wget -q -S -o $tmplog --post-data="$JSONDATA" $THETA/osc/commands/execute -O $outfile || echo -n ""
+  RETCODE=`head -n 1 $tmplog`
+  rm $tmplog
+  if [ "$RETCODE" != "HTTP/1.1 200 OK" ]; then
+    echo $RETCODE 1>&2
+    exit 1
+  fi
+}
+
+wait_result() { # commandid
+  state="inProgress"
+  while [ $state = "inProgress" ]; do
+    result=`get_progress $1`
+    state=`echo $result | jq -r .state`
+  done
+  echo $result
+}
+
+list_images() { #nr_entries 
+  params="{\"entryCount\":$1,\"includeThumb\":false}"
+  exec_command camera.listImages $params
+}
+
+delete_image() { # imagename
+  ret=`exec_command camera.delete "{\"fileUri\":\"100RICOH/$1\"}"`
+  if [ `echo $ret | jq -r .state` != "done" ]; then
+    echo "Error when removing $1"
+  fi
+}
+
+get_session() {
+  exec_command camera.startSession "{}" | jq .results.sessionId
+}
+
+close_session() { # sessionid
+  exec_command camera.closeSession "{\"sessionId\":$1}"
+}
+
+take_picture() {
+   sid=`get_session`
+   ret=`exec_command camera.takePicture "{\"sessionId\":$sid}"`
+
+   STATE=`echo $ret | jq -r .state`
+   if [ $STATE = "done" ]; then
+     echo $ret | jq -r .results.fileUri
+   else
+     wait_result `echo $ret | jq -r .id` | jq -r .results.fileUri
+   fi
+   close_session $sid > /dev/null
+}
+
+[ "$DEBUG" ] && set -x
+
+case "$1" in
+  ls)
+  nr_images=`list_images 1 | jq .results.totalEntries`
+  list_images $nr_images | jq -r '.results.entries[] | .name'
+  ;;
+  info)
+  get_info
+  ;;
+  state)
+  get_state
+  ;;
+  get)
+  get_image $2
+  ;;
+  shot)
+  take_picture
+  ;;
+  del*)
+  delete_image $2
+  ;;
+  usage|help|*)
+  echo "usage: $0 COMMAND [ARGS]"
+  echo " COMMAND:"
+  echo "  info		Get Theta S information"
+  echo "  state		Get the state of Theta S"
+  echo "  ls		List up the image files in Theta S"
+  echo "  get [FILE]	Get the image file from Theta S"
+  echo "  del [FILE]	Delete the image file from Theta S"
+  echo "  shot		Take a photo"
+  ;;
+esac
+
