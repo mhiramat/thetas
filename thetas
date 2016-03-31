@@ -19,7 +19,7 @@ get_state() {
 }
 
 get_image() { # imagename
-  wget $THETA/100RICOH/$1
+  wget -c $THETA/100RICOH/$1
 }
 
 get_progress() { # commandid [outfile]
