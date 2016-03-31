@@ -1,4 +1,10 @@
 #!/bin/sh
+# Theta S API tool
+#
+# Copyright (C) 2016 Masami Hiramatsu <masami.hiramatsu@gmail.com>
+# This program is released under the MIT License, see LICENSE.
+#
+# This requires wget and jq
 
 THETA="http://192.168.1.1:80"
 RETCODE=""
